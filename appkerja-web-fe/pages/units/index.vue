@@ -623,13 +623,14 @@ onBeforeUnmount(() => {
             </template>
 
             <template #item.isActive="{ item }">
-              <v-chip
-                size="small"
-                :color="item.isActive ? 'success' : 'default'"
-                variant="tonal"
+              <span
+                class="font-weight-medium"
+                :class="{
+                  'text-success': item.isActive === true,
+                }"
               >
                 {{ item.isActive ? "Yes" : "No" }}
-              </v-chip>
+              </span>
             </template>
 
             <template #item.actions="{ item }">
@@ -841,7 +842,13 @@ onBeforeUnmount(() => {
                     }}
                   </v-col>
                   <v-col cols="4" class="text-body-1 text-medium-emphasis detail-row">Active</v-col>
-                  <v-col cols="8" class="text-body-1 font-weight-medium detail-row">
+                  <v-col
+                    cols="8"
+                    class="text-body-1 font-weight-medium detail-row"
+                    :class="{
+                      'text-success': selectedUnit?.isActive === true,
+                    }"
+                  >
                     {{ selectedUnit?.isActive ? "Yes" : "No" }}
                   </v-col>
                   <v-col cols="4" class="text-body-1 text-medium-emphasis detail-row">Created</v-col>
