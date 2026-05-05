@@ -1,0 +1,34 @@
+services:
+  app-dev:
+    profiles: ["dev"]
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: appkerja-fe-dev
+    ports:
+      - "8088:3000"
+    volumes:
+      - .:/app
+    environment:
+      - NODE_ENV=development
+    networks:
+      - app-bridge
+
+  app:
+    profiles: ["prod"]
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: appkerja-fe-prod
+    restart: always
+    ports:
+      - "8089:3000"
+    environment:
+      - NODE_ENV=production
+    networks:
+      - app-bridge
+
+networks:
+  app-bridge:
+    external: true
+

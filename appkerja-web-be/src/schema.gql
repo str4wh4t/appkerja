@@ -1,0 +1,548 @@
+# ------------------------------------------------------
+# THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+# ------------------------------------------------------
+
+input AuthChangePasswordInput {
+  currentPassword: String!
+  newPassword: String!
+}
+
+input AuthCompleteSsoOnboardingInput {
+  firstName: String!
+  lastName: String
+  phone: String!
+  username: String!
+}
+
+input AuthLoginInput {
+  password: String!
+  usernameOrEmail: String!
+}
+
+input AuthRefreshTokenInput {
+  refresh_token: String!
+}
+
+"""
+Role code yang dipilih untuk konteks UI (menu). Harus salah satu dari user.roles[].code. Tidak mengubah union permission.
+"""
+input AuthSetActiveRoleInput {
+  """Kode role yang dimiliki user, mis. operator, admin, mhs."""
+  activeRoleCode: String!
+}
+
+"""
+Tenant aktif untuk konteks data tenancy. Harus tenant yang bisa diakses user.
+"""
+input AuthSetActiveTenantInput {
+  activeTenantId: ID!
+}
+
+"""
+A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
+"""
+scalar DateTime
+
+type LoginResponse {
+  access_token: String!
+
+  """
+  Sama dengan claim activeRoleCode di access token (konteks UI). Null jika tidak dipilih.
+  """
+  activeRoleCode: String
+
+  """Sama dengan claim activeTenantId di access token (konteks tenancy)."""
+  activeTenantId: String
+  expires_in: String!
+  refresh_token: String!
+  token_type: String!
+  user: User!
+}
+
+type Mhs {
+  agama: String
+  alamat: String
+  alamat_sekarang: String
+  hp: String
+  jenis_kelamin: String!
+  kode_fakultas: String!
+  kode_prodi: String!
+  nama: String!
+  nama_fak_ijazah: String!
+  nama_forlap: String!
+  nama_kabupaten: String
+  nama_provinsi: String
+  nim: ID!
+  no_id: String
+  smt_masuk: String
+  sso_user_email: String
+  status_terakhir: String!
+  strata: String!
+  tahun_masuk: Int
+  tanggal_lahir: String
+  tempat_lahir: String
+}
+
+type Mutation {
+  """
+  Change password for the signed-in user. Requires current password. JWT only; no permission code.
+  """
+  authChangePassword(authChangePasswordInput: AuthChangePasswordInput!): Boolean!
+
+  """
+  Selesaikan onboarding SSO (first name wajib, last name opsional, phone, username). Hanya dengan access token purpose google_onboarding. Mengembalikan JWT penuh.
+  """
+  authCompleteSsoOnboarding(authCompleteSsoOnboardingInput: AuthCompleteSsoOnboardingInput!): LoginResponse!
+  authLogin(authLoginInput: AuthLoginInput!): LoginResponse!
+  authRefreshToken(authRefreshTokenInput: AuthRefreshTokenInput!): RefreshTokenResponse!
+
+  """
+  Menerbitkan token baru dengan claim activeRoleCode untuk konteks UI menu. activeRoleCode harus salah satu user.roles[].code. Permission tetap union semua role.
+  """
+  authSetActiveRole(authSetActiveRoleInput: AuthSetActiveRoleInput!): LoginResponse!
+
+  """
+  Menerbitkan token baru dengan claim activeTenantId untuk konteks tenancy.
+  """
+  authSetActiveTenant(authSetActiveTenantInput: AuthSetActiveTenantInput!): LoginResponse!
+  rolesAssignPermissions(roleAssignPermissionsInput: RoleAssignPermissionsInput!): Role
+  tenantsCreate(tenantCreateInput: TenantCreateInput!): Tenant!
+  tenantsDelete(tenantDeleteInput: TenantDeleteInput!): Boolean!
+  tenantsForceDelete(id: ID!): Boolean!
+  tenantsRestore(tenantRestoreInput: TenantRestoreInput!): Tenant
+  tenantsUpdate(id: ID!, tenantUpdateInput: TenantUpdateInput!): Tenant
+  unitsCreate(unitCreateInput: UnitCreateInput!): Unit!
+  unitsDelete(id: ID!): Boolean!
+  unitsForceDelete(id: ID!): Boolean!
+  unitsRestore(id: ID!): Unit
+  unitsUpdate(id: ID!, unitUpdateInput: UnitUpdateInput!): Unit
+  userRoleScopesCreate(userRoleScopeCreateInput: UserRoleScopeCreateInput!): UserRoleScope!
+  userRoleScopesRemove(id: Int!): Boolean!
+  userRoleScopesUpdate(id: Int!, userRoleScopeUpdateInput: UserRoleScopeUpdateInput!): UserRoleScope
+  usersAssignRoles(userAssignRolesInput: UserAssignRolesInput!): User
+  usersCreate(userCreateInput: UserCreateInput!): User!
+  usersDelete(id: ID!): Boolean!
+
+  """
+  Keluar dari mode impersonate dan kembali ke user asli (berdasarkan token impersonate aktif).
+  """
+  usersExitImpersonate: LoginResponse!
+  usersForceDelete(id: ID!): Boolean!
+
+  """
+  Membuat token login baru sebagai user target (impersonate). Membutuhkan permission users.impersonate.
+  """
+  usersImpersonate(targetUserId: String!): LoginResponse!
+
+  """Hapus avatar user yang sedang login. JWT wajib."""
+  usersOwnAvatarDelete: User
+
+  """
+  Ganti avatar user yang sedang login. JWT wajib. `isPublicUpload` memilih bucket S3.
+  """
+  usersOwnAvatarUpdate(usersOwnAvatarUpdateInput: UsersOwnAvatarUpdateInput!): User
+
+  """
+  Reset password user yang sedang login ke nilai default aplikasi. JWT wajib (tanpa permission users.update).
+  """
+  usersOwnResetPassword: User
+
+  """
+  Update profil user yang sedang login (nama, telepon). Tanpa upload file; JWT wajib.
+  """
+  usersOwnUpdateProfile(usersOwnUpdateProfileInput: UsersOwnUpdateProfileInput!): User
+
+  """
+  Reset password user lain di tenant aktif ke nilai `USER_PASSWORD_DEFAULT`. `@Roles(admin)`: hanya role admin; superadmin tetap boleh (bypass RolesGuard, sama seperti PermissionsGuard). Target dalam tenant yang sama; bukan diri sendiri (pakai `usersOwnResetPassword`).
+  """
+  usersResetPassword(id: ID!): User
+  usersRestore(id: ID!): User
+  usersUpdate(id: ID!, userUpdateInput: UserUpdateInput!): User
+}
+
+type Pegawai {
+  foto: String
+  glr_blkg: String
+  glr_dpn: String
+  gol_text: String
+  id: Int!
+  jabatan_text: String
+  jenis_pegawai: String!
+  jnspeg: Int!
+  kode_fakultas: String
+  nama: String
+  nama_fak_ijazah: String!
+  nidk: String
+  nidn: String
+  nik: String
+  nip: ID!
+  npwp: String
+  nuptk: String
+  pangkat_text: String
+  sso_user_email: String
+}
+
+type Permission {
+  action: String!
+  code: String!
+  createdAt: DateTime!
+  description: String
+  id: Int!
+  name: String!
+  resource: String!
+  roles: [Role!]!
+  updatedAt: DateTime!
+}
+
+type Query {
+  """Mengambil tenant aktif dari claim JWT saat ini."""
+  authActiveTenant: Tenant
+
+  """
+  Mengambil daftar tenant yang bisa diakses user saat ini (superadmin: semua tenant).
+  """
+  authMyTenants: [Tenant!]!
+  permissionsFindAll: [Permission!]!
+  permissionsFindByAction(action: String!): [Permission!]!
+  permissionsFindByResource(resource: String!): [Permission!]!
+  permissionsFindOne(code: String, id: Int): Permission
+
+  """
+  Daftar role untuk UI permission / matrix; role superadmin tidak disertakan (ditangani terpisah).
+  """
+  rolesFindAll: [Role!]!
+  rolesFindOne(code: String, id: Int): Role
+  tenantsFindAll(withDeleted: Boolean = false): [Tenant!]!
+  tenantsFindOne(code: String, id: ID, withDeleted: Boolean = false): Tenant
+  unitsFindAllPaginated(paginationInput: UnitPaginationInput): UnitPaginationResponse!
+  unitsFindAncestors(id: ID!, withDeleted: Boolean = false): Unit
+  unitsFindDescendants(id: ID!, withDeleted: Boolean = false): [Unit!]!
+  unitsFindOne(code: String, id: ID, withDeleted: Boolean = false): Unit
+
+  """
+  Mengambil data user_role_scopes secara paginated beserta relasi userRole, user, dan role.
+  """
+  userRoleScopesFindAllPaginated(paginationInput: UserRoleScopePaginationInput): UserRoleScopePaginationResponse!
+  userRoleScopesFindByScope(scopeId: String!, scopeType: String!): [UserRoleScope!]!
+
+  """Mengambil daftar scope berdasarkan kombinasi userId dan roleId."""
+  userRoleScopesFindByUserRole(roleId: Int!, userId: String!): [UserRoleScope!]!
+  userRoleScopesFindOne(id: Int!): UserRoleScope
+
+  """
+  Mengambil data user_roles secara paginated beserta relasi user, role, dan scopes.
+  """
+  userRolesFindAllPaginated(paginationInput: UserRolePaginationInput): UserRolePaginationResponse!
+  usersFindAllPaginated(paginationInput: UserPaginationInput): UserPaginationResponse!
+  usersFindOne(email: String, id: ID, withDeleted: Boolean = false): User
+  usersMe: User
+  usersStatusesFindAll: [UserStatus!]!
+}
+
+type RefreshTokenResponse {
+  access_token: String!
+
+  """Dipertahankan dari refresh token sebelumnya (konteks UI)."""
+  activeRoleCode: String
+
+  """Dipertahankan dari refresh token sebelumnya (konteks tenancy)."""
+  activeTenantId: String
+  expires_in: String!
+  refresh_token: String!
+  token_type: String!
+}
+
+type Role {
+  code: String!
+  createdAt: DateTime!
+  description: String
+  id: Int!
+  isActive: Boolean!
+  name: String!
+  permissions: [Permission!]!
+  updatedAt: DateTime!
+}
+
+input RoleAssignPermissionsInput {
+  permissionIds: [Int!]!
+  roleId: Int!
+}
+
+type Tenant {
+  address: String
+  code: String!
+  createdAt: DateTime!
+  deletedAt: DateTime
+  description: String
+  id: ID!
+  name: String!
+  updatedAt: DateTime!
+  users: [User!]!
+}
+
+input TenantCreateInput {
+  address: String
+  code: String!
+  description: String
+  name: String!
+}
+
+input TenantDeleteInput {
+  id: ID!
+}
+
+input TenantRestoreInput {
+  id: ID!
+}
+
+input TenantUpdateInput {
+  address: String
+  code: String
+  description: String
+  name: String
+}
+
+type Unit {
+  code: String!
+  createdAt: DateTime!
+  description: String
+  id: ID!
+  isActive: Boolean!
+  name: String!
+  parentId: ID
+  tenantId: String!
+  updatedAt: DateTime!
+}
+
+input UnitCreateInput {
+  code: String!
+  description: String
+  isActive: Boolean = true
+  name: String!
+  parentId: ID
+}
+
+input UnitPaginationInput {
+  descending: Boolean = true
+  limit: Int = 10
+  page: Int = 1
+  search: String
+  sortBy: String = "createdAt"
+  withDeleted: Boolean = false
+}
+
+type UnitPaginationResponse {
+  data: [Unit!]!
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  limit: Int!
+  page: Int!
+  total: Int!
+  totalPages: Int!
+}
+
+input UnitUpdateInput {
+  code: String
+  description: String
+  isActive: Boolean
+  name: String
+  parentId: ID
+}
+
+"""The `Upload` scalar type represents a file upload."""
+scalar Upload
+
+type User {
+  """
+  Role code aktif untuk tampilan menu (dari JWT). Tidak mengubah union permission.
+  """
+  activeRoleCode: String
+
+  """Tenant aktif dari claim JWT untuk konteks data tenancy."""
+  activeTenantId: String
+  avatarUrl: String
+
+  """
+  Waktu penyelesaian profil/registrasi. Null untuk akun Google yang belum onboarding.
+  """
+  completedAt: DateTime
+  createdAt: DateTime!
+  email: String!
+  firstName: String
+  fullname: String
+  googleId: String
+  id: ID!
+  isEmailVerified: Boolean!
+  lastLoginAt: DateTime
+  lastName: String
+
+  """
+  True jika akun Google dan belum menyelesaikan onboarding (wajib phone + username).
+  """
+  needsGoogleProfileCompletion: Boolean!
+  phone: String
+  roles: [Role!]!
+  status: UserStatus!
+  statusId: Int!
+  tenants: [Tenant!]!
+  updatedAt: DateTime!
+  username: String!
+}
+
+input UserAssignRolesInput {
+  roleIds: [Int!]!
+  userId: ID!
+}
+
+input UserCreateInput {
+  email: String!
+  firstName: String!
+  lastName: String
+  phone: String!
+  roleIds: [Float!]
+  statusId: Float = 1
+  username: String!
+}
+
+input UserPaginationInput {
+  descending: Boolean = true
+  limit: Int = 10
+  page: Int = 1
+  roleIds: [Int!]
+  search: String
+  sortBy: String = "createdAt"
+  userStatusIds: [Int!]
+  withDeleted: Boolean = false
+}
+
+type UserPaginationResponse {
+  data: [User!]!
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  limit: Int!
+  page: Int!
+  total: Int!
+  totalPages: Int!
+}
+
+type UserRole {
+  createdAt: DateTime!
+  id: Int!
+  role: Role
+  roleId: Int!
+  tenantId: String!
+  user: User
+  userId: String!
+  userRoleScopes: [UserRoleScope!]
+}
+
+input UserRolePaginationInput {
+  descending: Boolean = true
+  limit: Int = 10
+  page: Int = 1
+
+  """Filter by roleId"""
+  roleId: Int
+
+  """Search username/email/role name/code"""
+  search: String
+  sortBy: String = "id"
+
+  """Filter by userId"""
+  userId: String
+}
+
+type UserRolePaginationResponse {
+  data: [UserRole!]!
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  limit: Int!
+  page: Int!
+  total: Int!
+  totalPages: Int!
+}
+
+type UserRoleScope {
+  createdAt: DateTime!
+  id: Int!
+  scope: String
+  scopeId: String!
+  scopeType: String!
+  tenantId: String!
+  updatedAt: DateTime!
+  userRole: UserRole!
+  userRoleId: Int!
+}
+
+input UserRoleScopeCreateInput {
+  scopeId: String!
+  scopeType: String!
+  userRoleId: Int!
+}
+
+input UserRoleScopePaginationInput {
+  descending: Boolean = true
+  limit: Int = 10
+  page: Int = 1
+
+  """Search by fullname user and role name"""
+  search: String
+  sortBy: String = "id"
+}
+
+type UserRoleScopePaginationResponse {
+  data: [UserRoleScope!]!
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  limit: Int!
+  page: Int!
+  total: Int!
+  totalPages: Int!
+}
+
+input UserRoleScopeUpdateInput {
+  """ID dari entity sesuai scopeType."""
+  scopeId: String
+
+  """Nama entity yang dijadikan scope (contoh: units)."""
+  scopeType: String
+  userRoleId: Int
+}
+
+type UserStatus {
+  code: String!
+  createdAt: DateTime!
+  description: String
+  id: Int!
+  isActive: Boolean!
+  name: String!
+  updatedAt: DateTime!
+}
+
+input UserUpdateInput {
+  """Gambar avatar (JPEG atau PNG)."""
+  avatar: Upload
+  email: String
+  firstName: String
+  lastName: String
+  phone: String
+  roleIds: [Float!]
+  statusId: Float = 1
+  username: String
+}
+
+input UsersOwnAvatarUpdateInput {
+  """Gambar avatar (JPEG atau PNG)."""
+  fileUpload: Upload!
+
+  """
+  Jika true, unggah ke bucket publik (S3_PUBLIC_BUCKET). Default false (bucket privat).
+  """
+  isPublicUpload: Boolean = false
+}
+
+input UsersOwnUpdateProfileInput {
+  firstName: String!
+  lastName: String
+  phone: String!
+}
