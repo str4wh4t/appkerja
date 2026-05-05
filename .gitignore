@@ -1,0 +1,45 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Root dependencies and logs
+node_modules/
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+*.log
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Monorepo app artifacts
+appkerja-web-fe/node_modules/
+appkerja-web-fe/.nuxt/
+appkerja-web-fe/.output/
+appkerja-web-fe/.nitro/
+appkerja-web-fe/.cache/
+appkerja-web-fe/dist/
+
+appkerja-web-be/node_modules/
+appkerja-web-be/dist/
+appkerja-web-be/build/
+appkerja-web-be/coverage/
+
+appkerja-mobile/.dart_tool/
+appkerja-mobile/.flutter-plugins
+appkerja-mobile/.flutter-plugins-dependencies
+appkerja-mobile/.packages
+appkerja-mobile/build/
+
+# Keep this list minimal at root; app-specific ignore rules can stay in each app.
