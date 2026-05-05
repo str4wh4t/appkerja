@@ -7,6 +7,9 @@ import { computeUserFullname } from '../../users/user-fullname.util.js';
 import { computeNeedsGoogleProfileCompletion } from '../../users/user-needs-google-profile-completion.util.js';
 import { RedisService } from '../../../redis/redis.service.js';
 import { User } from '../../users/entities/user.entity.js';
+import { InjectRepository } from '@nestjs/typeorm';
+import { AuthSession } from '../entities/index.js';
+import { IsNull, MoreThan, Repository } from 'typeorm';
 
 /** Prefix kunci Redis: snapshot `findOne` — scope lewat `userRoles` → `userRoleScopes` (bukan langsung dari users/roles). */
 const USER_CACHE_KEY = 'user:';
@@ -18,6 +21,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private configService: ConfigService,
     private usersService: UsersService,
     private redisService: RedisService,
+    @InjectRepository(AuthSession)
+    private readonly authSessionRepository: Repository<AuthSession>,
   ) {
     const jwtConfig = configService.get<any>('app.jwt');
 
@@ -36,6 +41,32 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     const isGoogleOnboardingToken = payload.purpose === 'google_onboarding';
     const canUseInactiveForOnboarding = (statusCode?: string | null) =>
       isGoogleOnboardingToken && statusCode === 'inactive';
+    const sessionId =
+      payload?.sid != null && String(payload.sid).trim().length > 0
+        ? String(payload.sid).trim()
+        : null;
+    const isSessionActive = async (userId: string): Promise<boolean> => {
+      if (!sessionId) {
+        // Backward compatibility for legacy tokens without sid.
+        return true;
+      }
+      if (this.redisService.isAvailable()) {
+        const key = `auth:session:${sessionId}`;
+        const cached = await this.redisService.get<{ userId?: string; revoked?: boolean }>(key);
+        if (cached?.userId === userId && cached.revoked !== true) {
+          return true;
+        }
+      }
+      const row = await this.authSessionRepository.findOne({
+        where: {
+          id: sessionId,
+          userId,
+          revokedAt: IsNull(),
+          expiresAt: MoreThan(new Date()),
+        },
+      });
+      return Boolean(row);
+    };
 
     if (this.redisService.isAvailable()) {
       const cacheKey = `${USER_CACHE_KEY}${payload.sub}`;
@@ -44,6 +75,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         cached?.status?.code === 'active' ||
         canUseInactiveForOnboarding(cached?.status?.code)
       ) {
+        if (!(await isSessionActive(payload.sub))) {
+          throw new UnauthorizedException('Session is no longer active');
+        }
         const cachedPlain = cached as unknown as Record<string, unknown>;
         const staleSsoCache =
           Boolean((cached as User).googleId?.trim()) &&
@@ -87,6 +121,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
           payload.purpose != null && String(payload.purpose).length > 0
             ? String(payload.purpose)
             : null;
+        (cachedUser as User & { jwtSessionId?: string | null }).jwtSessionId =
+          sessionId;
         return cachedUser as User;
         }
       }
@@ -99,6 +135,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     if (user.status?.code !== 'active' && !canUseInactiveForOnboarding(user.status?.code)) {
       throw new UnauthorizedException('User account is not active');
+    }
+    if (!(await isSessionActive(user.id))) {
+      throw new UnauthorizedException('Session is no longer active');
     }
 
     if (this.redisService.isAvailable()) {
@@ -140,6 +179,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       payload.purpose != null && String(payload.purpose).length > 0
         ? String(payload.purpose)
         : null;
+    (authenticatedUser as User & { jwtSessionId?: string | null }).jwtSessionId =
+      sessionId;
 
     return authenticatedUser as User;
   }

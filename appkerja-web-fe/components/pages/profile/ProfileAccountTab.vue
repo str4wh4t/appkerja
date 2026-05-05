@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { getUserMe, changePassword } from "@/services/graphql/auth.service";
 import {
   updateOwnProfile,
@@ -16,6 +16,7 @@ const phone = ref("");
 const username = ref("");
 const email = ref("");
 const avatarUrl = ref<string | null>(null);
+const avatarImageFailed = ref(false);
 /** SSO-linked accounts: hide local password change UI. */
 const isSsoAccount = ref(false);
 
@@ -71,6 +72,14 @@ const initials = computed(() => {
   return `${parts[0][0] || ""}${parts[1][0] || ""}`.toUpperCase();
 });
 
+watch(avatarUrl, () => {
+  avatarImageFailed.value = false;
+});
+
+const showAvatarImage = computed(
+  () => Boolean(avatarUrl.value?.trim()) && !avatarImageFailed.value,
+);
+
 const applyMe = (me: {
   firstName?: string | null;
   lastName?: string | null;
@@ -85,7 +94,7 @@ const applyMe = (me: {
   phone.value = me.phone ?? "";
   username.value = me.username ?? "";
   email.value = me.email ?? "";
-  avatarUrl.value = me.avatarUrl ?? null;
+  avatarUrl.value = me.avatarUrl?.trim() ? me.avatarUrl.trim() : null;
   isSsoAccount.value = Boolean(me.googleId && String(me.googleId).trim());
 };
 
@@ -275,8 +284,14 @@ onMounted(() => {
                 {{ avatarError }}
               </v-alert>
               <div class="text-center mt-6 mb-6">
-                <v-avatar size="120" color="primary" variant="tonal" class="font-weight-bold text-h4">
-                  <v-img v-if="avatarUrl" :src="avatarUrl" cover alt="" />
+                <v-avatar size="96" color="primary" variant="tonal" class="font-weight-bold text-h4">
+                  <v-img
+                    v-if="showAvatarImage"
+                    :src="avatarUrl || ''"
+                    cover
+                    alt=""
+                    @error="avatarImageFailed = true"
+                  />
                   <span v-else>{{ initials }}</span>
                 </v-avatar>
               </div>

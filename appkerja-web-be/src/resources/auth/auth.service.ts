@@ -7,8 +7,8 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Repository } from 'typeorm';
-import { randomUUID } from 'crypto';
+import { In, IsNull, MoreThan, Repository } from 'typeorm';
+import { createHash, randomUUID } from 'crypto';
 import { UsersService } from '../users/users.service.js';
 import { User } from '../users/entities/user.entity.js';
 import { Role, SUPERADMIN_ROLE_CODE } from '../roles/entities/role.entity.js';
@@ -17,6 +17,8 @@ import { GoogleOauthService } from './services/index.js';
 import { Tenant } from '../tenants/entities/tenant.entity.js';
 import { UserTenant } from '../tenants/entities/user-tenant.entity.js';
 import { RedisService } from '../../redis/redis.service.js';
+import { AuthSession } from './entities/index.js';
+import { AuthSessionType } from './dto/auth-session.type.js';
 
 type GoogleOauthStatePayload = {
   type: 'google_oauth_state';
@@ -34,6 +36,13 @@ type LoginExchangePayload = {
   tenantId: string;
 };
 
+type AuthClientMeta = {
+  userAgent?: string | null;
+  ipAddress?: string | null;
+  deviceName?: string | null;
+  deviceType?: string | null;
+};
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -48,12 +57,196 @@ export class AuthService {
     private readonly userTenantRepository: Repository<UserTenant>,
     @InjectRepository(Role)
     private readonly roleRepository: Repository<Role>,
+    @InjectRepository(AuthSession)
+    private readonly authSessionRepository: Repository<AuthSession>,
   ) {}
 
   private readonly loginCodeMemoryStore = new Map<
     string,
     { expiresAt: number; payload: LoginExchangePayload }
   >();
+
+  private sessionCacheKey(sessionId: string): string {
+    return `auth:session:${sessionId}`;
+  }
+
+  private normalizeClientMeta(meta?: AuthClientMeta | null): Required<AuthClientMeta> {
+    const ua = String(meta?.userAgent ?? '').trim();
+    const normalizedUserAgent = ua.length > 0 ? ua.slice(0, 1024) : 'Unknown Device';
+    const normalizedIp = String(meta?.ipAddress ?? '').trim().slice(0, 64);
+    const rawType = String(meta?.deviceType ?? '').trim().toLowerCase();
+    const explicitType =
+      rawType === 'mobile' || rawType === 'desktop' || rawType === 'tablet'
+        ? rawType
+        : '';
+
+    const inferredType =
+      explicitType ||
+      (/mobile|android|iphone|ipad/i.test(normalizedUserAgent)
+        ? 'mobile'
+        : 'desktop');
+    const normalizedName = String(meta?.deviceName ?? '').trim();
+    const inferredName =
+      normalizedName.length > 0
+        ? normalizedName.slice(0, 255)
+        : inferredType === 'mobile'
+          ? 'Mobile Device'
+          : 'Desktop Device';
+
+    return {
+      userAgent: normalizedUserAgent,
+      ipAddress: normalizedIp || null,
+      deviceName: inferredName,
+      deviceType: inferredType,
+    };
+  }
+
+  private hashRefreshToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
+
+  private resolveSessionExpiryFromRefreshToken(refreshToken: string): Date {
+    const decoded = this.jwtService.decode(refreshToken) as
+      | { exp?: number }
+      | null;
+    if (decoded?.exp && Number.isFinite(decoded.exp)) {
+      return new Date(decoded.exp * 1000);
+    }
+    const fallback = Date.now() + 30 * 24 * 60 * 60 * 1000;
+    return new Date(fallback);
+  }
+
+  private async markSessionActiveInRedis(
+    sessionId: string,
+    userId: string,
+    expiresAt: Date,
+  ): Promise<void> {
+    if (!this.redisService.isAvailable()) return;
+    const ttlMs = Math.max(1000, expiresAt.getTime() - Date.now());
+    await this.redisService.set(
+      this.sessionCacheKey(sessionId),
+      { userId, revoked: false },
+      ttlMs,
+    );
+  }
+
+  private async clearSessionInRedis(sessionId: string): Promise<void> {
+    if (!this.redisService.isAvailable()) return;
+    await this.redisService.del(this.sessionCacheKey(sessionId));
+  }
+
+  private async createOrRotateSession(params: {
+    sessionId?: string | null;
+    user: User;
+    refreshToken: string;
+    clientMeta?: AuthClientMeta | null;
+  }): Promise<string> {
+    const now = new Date();
+    const sessionId = String(params.sessionId || '').trim() || randomUUID();
+    const expiresAt = this.resolveSessionExpiryFromRefreshToken(
+      params.refreshToken,
+    );
+    const refreshTokenHash = this.hashRefreshToken(params.refreshToken);
+    const meta = this.normalizeClientMeta(params.clientMeta);
+
+    const existing = await this.authSessionRepository.findOne({
+      where: { id: sessionId, userId: params.user.id },
+    });
+
+    if (!existing) {
+      const created = this.authSessionRepository.create({
+        id: sessionId,
+        userId: params.user.id,
+        deviceName: meta.deviceName || 'Unknown Device',
+        deviceType: meta.deviceType || 'desktop',
+        userAgent: meta.userAgent || null,
+        ipAddress: meta.ipAddress || null,
+        refreshTokenHash,
+        expiresAt,
+        lastSeenAt: now,
+        revokedAt: null,
+      });
+      await this.authSessionRepository.save(created);
+    } else {
+      existing.deviceName = meta.deviceName || existing.deviceName;
+      existing.deviceType = meta.deviceType || existing.deviceType;
+      existing.userAgent = meta.userAgent || existing.userAgent;
+      existing.ipAddress = meta.ipAddress || existing.ipAddress;
+      existing.refreshTokenHash = refreshTokenHash;
+      existing.expiresAt = expiresAt;
+      existing.lastSeenAt = now;
+      existing.revokedAt = null;
+      await this.authSessionRepository.save(existing);
+    }
+
+    await this.markSessionActiveInRedis(sessionId, params.user.id, expiresAt);
+    return sessionId;
+  }
+
+  private async getActiveSessionById(
+    userId: string,
+    sessionId: string,
+  ): Promise<AuthSession | null> {
+    const normalized = String(sessionId || '').trim();
+    if (!normalized) return null;
+
+    const now = new Date();
+    if (this.redisService.isAvailable()) {
+      const cached = await this.redisService.get<{ userId?: string; revoked?: boolean }>(
+        this.sessionCacheKey(normalized),
+      );
+      if (cached && cached.userId === userId && cached.revoked !== true) {
+        const dbRow = await this.authSessionRepository.findOne({
+          where: {
+            id: normalized,
+            userId,
+            revokedAt: IsNull(),
+            expiresAt: MoreThan(now),
+          },
+        });
+        return dbRow ?? null;
+      }
+    }
+
+    const session = await this.authSessionRepository.findOne({
+      where: {
+        id: normalized,
+        userId,
+        revokedAt: IsNull(),
+        expiresAt: MoreThan(now),
+      },
+    });
+    if (!session) return null;
+    await this.markSessionActiveInRedis(session.id, userId, session.expiresAt);
+    return session;
+  }
+
+  private async revokeSessionRow(session: AuthSession): Promise<void> {
+    const now = new Date();
+    await this.authSessionRepository.update(session.id, {
+      revokedAt: now,
+      lastSeenAt: now,
+    });
+    await this.clearSessionInRedis(session.id);
+  }
+
+  private mapSessionToGraphql(
+    row: AuthSession,
+    currentSessionId?: string | null,
+  ): AuthSessionType {
+    return {
+      id: row.id,
+      deviceName: row.deviceName,
+      deviceType: row.deviceType,
+      ipAddress: row.ipAddress,
+      userAgent: row.userAgent,
+      lastSeenAt: row.lastSeenAt,
+      expiresAt: row.expiresAt,
+      isCurrent: Boolean(
+        currentSessionId && row.id === String(currentSessionId).trim(),
+      ),
+    };
+  }
 
   private canContinueGoogleOnboarding(user: User): boolean {
     return Boolean(user.googleId?.trim()) && user.completedAt == null;
@@ -359,6 +552,7 @@ export class AuthService {
       activeTenantId?: string | null;
       /** Token terbatas: hanya endpoint onboarding Google. */
       purpose?: string | null;
+      sessionId?: string | null;
     },
   ): Promise<string> {
     const jwtConfig = this.configService.get<any>('app.jwt');
@@ -381,6 +575,9 @@ export class AuthService {
     if (options?.purpose != null && String(options.purpose).length > 0) {
       payload.purpose = String(options.purpose);
     }
+    if (options?.sessionId != null && String(options.sessionId).trim().length > 0) {
+      payload.sid = String(options.sessionId).trim();
+    }
 
     return this.jwtService.sign(payload, {
       secret: jwtConfig.secret,
@@ -395,6 +592,7 @@ export class AuthService {
       activeRoleCode?: string | null;
       activeTenantId?: string | null;
       purpose?: string | null;
+      sessionId?: string | null;
     },
   ): Promise<string> {
     const jwtConfig = this.configService.get<any>('app.jwt');
@@ -415,6 +613,9 @@ export class AuthService {
     if (options?.purpose != null && String(options.purpose).length > 0) {
       payload.purpose = String(options.purpose);
     }
+    if (options?.sessionId != null && String(options.sessionId).trim().length > 0) {
+      payload.sid = String(options.sessionId).trim();
+    }
 
     return this.jwtService.sign(payload, {
       secret: jwtConfig.refreshSecret,
@@ -434,6 +635,8 @@ export class AuthService {
       activeRoleCode?: string | null;
       activeTenantId?: string | null;
       purpose?: string | null;
+      sessionId?: string | null;
+      clientMeta?: AuthClientMeta | null;
     },
   ) {
     const normalized = this.normalizeActiveRoleCodeInput(
@@ -450,17 +653,27 @@ export class AuthService {
         ? String(options.purpose).trim()
         : null;
 
+    const sessionId = String(options?.sessionId || '').trim() || randomUUID();
+
     const accessToken = await this.generateAccessToken(user, {
       impersonatedByUserId: options?.impersonatedByUserId,
       activeRoleCode,
       activeTenantId,
       purpose,
+      sessionId,
     });
     const refreshToken = await this.generateRefreshToken(user, {
       impersonatedByUserId: options?.impersonatedByUserId,
       activeRoleCode,
       activeTenantId,
       purpose,
+      sessionId,
+    });
+    await this.createOrRotateSession({
+      sessionId,
+      user,
+      refreshToken,
+      clientMeta: options?.clientMeta,
     });
     const jwtConfig = this.configService.get<any>('app.jwt');
 
@@ -480,6 +693,7 @@ export class AuthService {
       user: fullUser,
       activeRoleCode,
       activeTenantId,
+      sessionId,
     };
   }
 
@@ -584,7 +798,7 @@ export class AuthService {
    * Selesaikan onboarding SSO (nama, phone, username), lalu terbitkan JWT penuh.
    */
   async completeSsoOnboarding(
-    currentUser: User & { jwtPurpose?: string | null },
+    currentUser: User & { jwtPurpose?: string | null; jwtSessionId?: string | null },
     input: {
       firstName: string;
       lastName?: string | null;
@@ -604,6 +818,7 @@ export class AuthService {
     }
     return this.login(user, {
       activeTenantId: currentUser.activeTenantId ?? undefined,
+      sessionId: currentUser.jwtSessionId ?? null,
     });
   }
 
@@ -646,9 +861,13 @@ export class AuthService {
   /**
    * Login dengan username/email dan password
    */
-  async loginWithCredentials(usernameOrEmail: string, password: string) {
+  async loginWithCredentials(
+    usernameOrEmail: string,
+    password: string,
+    clientMeta?: AuthClientMeta | null,
+  ) {
     const user = await this.validateUser(usernameOrEmail, password);
-    return this.login(user);
+    return this.login(user, { clientMeta });
   }
 
   /**
@@ -671,7 +890,10 @@ export class AuthService {
    * dengan claim activeRoleCode (permission tetap union semua role).
    */
   async setActiveRole(
-    currentUser: User & { impersonatedByUserId?: string },
+    currentUser: User & {
+      impersonatedByUserId?: string;
+      jwtSessionId?: string | null;
+    },
     activeRoleCodeRaw: string,
   ) {
     const fullUser = await this.usersService.findOne(currentUser.id);
@@ -690,11 +912,15 @@ export class AuthService {
       impersonatedByUserId: currentUser.impersonatedByUserId ?? null,
       activeRoleCode,
       activeTenantId: currentUser.activeTenantId ?? null,
+      sessionId: currentUser.jwtSessionId ?? null,
     });
   }
 
   async setActiveTenant(
-    currentUser: User & { impersonatedByUserId?: string },
+    currentUser: User & {
+      impersonatedByUserId?: string;
+      jwtSessionId?: string | null;
+    },
     activeTenantIdRaw: string,
   ) {
     const fullUser = await this.usersService.findOne(currentUser.id);
@@ -712,6 +938,7 @@ export class AuthService {
       impersonatedByUserId: currentUser.impersonatedByUserId ?? null,
       activeRoleCode: currentUser.activeRoleCode ?? null,
       activeTenantId,
+      sessionId: currentUser.jwtSessionId ?? null,
     });
   }
 
@@ -731,6 +958,8 @@ export class AuthService {
       if (payload.type !== 'refresh') {
         throw new UnauthorizedException('Invalid token type');
       }
+
+      const sid = String(payload.sid || '').trim() || randomUUID();
 
       // Get user from database
       const user = await this.usersService.findOne(payload.sub);
@@ -767,12 +996,27 @@ export class AuthService {
           ? purposeRaw.trim()
           : null;
 
+      if (payload.sid) {
+        const session = await this.getActiveSessionById(user.id, sid);
+        if (!session) {
+          throw new UnauthorizedException('Session is no longer active');
+        }
+        const incomingRefreshHash = this.hashRefreshToken(refreshToken);
+        if (
+          session.refreshTokenHash &&
+          session.refreshTokenHash !== incomingRefreshHash
+        ) {
+          throw new UnauthorizedException('Refresh token mismatch');
+        }
+      }
+
       // Generate new access token
       const newAccessToken = await this.generateAccessToken(user, {
         impersonatedByUserId: payload.impersonatedByUserId ?? null,
         activeRoleCode,
         activeTenantId,
         purpose,
+        sessionId: sid,
       });
 
       // Generate new refresh token (token rotation untuk security)
@@ -781,6 +1025,12 @@ export class AuthService {
         activeRoleCode,
         activeTenantId,
         purpose,
+        sessionId: sid,
+      });
+      await this.createOrRotateSession({
+        sessionId: sid,
+        user,
+        refreshToken: newRefreshToken,
       });
 
       return {
@@ -790,6 +1040,7 @@ export class AuthService {
         expires_in: jwtConfig.expiresIn,
         activeRoleCode,
         activeTenantId,
+        sessionId: sid,
       };
     } catch (error: any) {
       if (error.name === 'TokenExpiredError') {
@@ -831,7 +1082,10 @@ export class AuthService {
   }
 
   async exitImpersonation(
-    currentUser: User & { impersonatedByUserId?: string },
+    currentUser: User & {
+      impersonatedByUserId?: string;
+      jwtSessionId?: string | null;
+    },
   ) {
     const originalUserId = currentUser.impersonatedByUserId;
     if (!originalUserId) {
@@ -851,6 +1105,71 @@ export class AuthService {
     // Tanpa ini, login() memakai tenant default user asli sehingga operator kehilangan tenant B.
     return this.login(originalUser, {
       activeTenantId: currentUser.activeTenantId ?? null,
+      sessionId: currentUser.jwtSessionId ?? null,
     });
+  }
+
+  async listMySessions(currentUser: User & { jwtSessionId?: string | null }) {
+    const rows = await this.authSessionRepository.find({
+      where: {
+        userId: currentUser.id,
+        revokedAt: IsNull(),
+        expiresAt: MoreThan(new Date()),
+      },
+      order: { lastSeenAt: 'DESC', createdAt: 'DESC' },
+    });
+    return rows.map((row) =>
+      this.mapSessionToGraphql(row, currentUser.jwtSessionId ?? null),
+    );
+  }
+
+  async revokeSession(
+    currentUser: User & { jwtSessionId?: string | null },
+    sessionId: string,
+  ): Promise<boolean> {
+    const session = await this.authSessionRepository.findOne({
+      where: {
+        id: String(sessionId).trim(),
+        userId: currentUser.id,
+      },
+    });
+    if (!session) {
+      return false;
+    }
+    await this.revokeSessionRow(session);
+    return true;
+  }
+
+  async revokeAllSessions(
+    currentUser: User & { jwtSessionId?: string | null },
+    keepCurrentSession = true,
+  ): Promise<number> {
+    const rows = await this.authSessionRepository.find({
+      where: {
+        userId: currentUser.id,
+        revokedAt: IsNull(),
+      },
+    });
+
+    const currentSessionId = String(currentUser.jwtSessionId || '').trim();
+    let count = 0;
+    for (const row of rows) {
+      if (keepCurrentSession && currentSessionId && row.id === currentSessionId) {
+        continue;
+      }
+      await this.revokeSessionRow(row);
+      count += 1;
+    }
+    return count;
+  }
+
+  async validateSessionFromToken(
+    userId: string,
+    sessionId?: string | null,
+  ): Promise<boolean> {
+    const sid = String(sessionId || '').trim();
+    if (!sid) return false;
+    const row = await this.getActiveSessionById(userId, sid);
+    return Boolean(row);
   }
 }

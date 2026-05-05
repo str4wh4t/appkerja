@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import { Icon } from "@iconify/vue";
 import { useCustomizerStore, type ThemeMode } from "@/stores/customizer";
 import {
   getAuthMyTenants,
@@ -52,7 +51,21 @@ const loadDrawerData = async () => {
   suppressTenantUpdate.value = true;
   try {
     const [tenantsRes, meRes] = await Promise.all([getAuthMyTenants(), getUserMe()]);
-    tenantItems.value = tenantsRes.data?.authMyTenants ?? [];
+    tenantItems.value = (tenantsRes.data?.authMyTenants ?? [])
+      .filter(
+        (
+          tenant,
+        ): tenant is {
+          id: string;
+          code: string;
+          name: string;
+        } => Boolean(tenant?.id && tenant?.code && tenant?.name),
+      )
+      .map((tenant) => ({
+        id: String(tenant.id),
+        code: String(tenant.code),
+        name: String(tenant.name),
+      }));
     const meId = meRes.data?.usersMe?.activeTenantId;
     selectedTenantId.value = meId != null && meId !== "" ? String(meId) : null;
   } catch {
@@ -101,10 +114,10 @@ const onTenantUpdate = async (id: string | null) => {
 
 <template>
   <div class="app-settings-panel d-flex flex-column h-100">
-    <div class="drawer-header d-flex align-center justify-space-between pa-4 border-b">
-      <span class="text-h6 font-weight-semibold">Settings</span>
+    <div class="drawer-header drawer-header-primary d-flex align-center justify-space-between pa-4 border-b">
+      <span class="text-h6 font-weight-semibold text-white">Settings</span>
       <v-btn icon variant="text" density="comfortable" @click="closeDrawer">
-        <Icon icon="mdi:close" height="22" width="22" />
+        <v-icon size="22" icon="mdi-close" />
       </v-btn>
     </div>
 
@@ -113,11 +126,11 @@ const onTenantUpdate = async (id: string | null) => {
       <p class="text-body-2 text-medium-emphasis mb-3">
         Light, dark, or follow the system setting.
       </p>
-      <v-radio-group v-model="themeModeModel" hide-details density="compact">
+      <v-radio-group v-model="themeModeModel" hide-details density="compact" color="primary">
         <v-radio value="light" class="settings-radio">
           <template #label>
             <span class="d-inline-flex align-center ga-2">
-              <Icon icon="solar:sun-2-bold-duotone" height="20" width="20" />
+              <v-icon size="20" icon="mdi-white-balance-sunny" />
               Light
             </span>
           </template>
@@ -125,7 +138,7 @@ const onTenantUpdate = async (id: string | null) => {
         <v-radio value="dark" class="settings-radio">
           <template #label>
             <span class="d-inline-flex align-center ga-2">
-              <Icon icon="solar:moon-bold-duotone" height="20" width="20" />
+              <v-icon size="20" icon="mdi-weather-night" />
               Dark
             </span>
           </template>
@@ -133,7 +146,7 @@ const onTenantUpdate = async (id: string | null) => {
         <v-radio value="system" class="settings-radio">
           <template #label>
             <span class="d-inline-flex align-center ga-2">
-              <Icon icon="solar:monitor-bold-duotone" height="20" width="20" />
+              <v-icon size="20" icon="mdi-monitor" />
               System
             </span>
           </template>
@@ -169,21 +182,14 @@ const onTenantUpdate = async (id: string | null) => {
       <div class="text-subtitle-2 text-medium-emphasis mb-2">Software information</div>
       <v-sheet class="software-info-panel pa-3 rounded-lg" rounded="lg">
         <div class="info-row">
-          <Icon icon="mdi:application-outline" class="info-icon" height="18" width="18" />
-          <div>
-            <div class="text-caption text-medium-emphasis">Application</div>
-            <div class="text-body-2 font-weight-medium">{{ appName }}</div>
-          </div>
-        </div>
-        <div class="info-row mt-3">
-          <Icon icon="mdi:tag-outline" class="info-icon" height="18" width="18" />
+          <v-icon icon="mdi-tag-outline" class="info-icon" size="18" />
           <div>
             <div class="text-caption text-medium-emphasis">Version</div>
             <div class="text-body-2 font-weight-medium">{{ appVersion }}</div>
           </div>
         </div>
         <div class="info-row mt-3">
-          <Icon icon="mdi:source-commit" class="info-icon" height="18" width="18" />
+          <v-icon icon="mdi-source-commit" class="info-icon" size="18" />
           <div>
             <div class="text-caption text-medium-emphasis">Build</div>
             <div class="text-body-2 font-mono text-truncate">{{ buildCommit }}</div>
@@ -202,6 +208,15 @@ const onTenantUpdate = async (id: string | null) => {
 .drawer-header {
   flex: 0 0 auto;
   border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+
+.drawer-header-primary {
+  background-color: rgb(var(--v-theme-primary));
+  color: rgb(var(--v-theme-on-primary));
+}
+
+.drawer-header-primary :deep(.v-btn) {
+  color: rgb(var(--v-theme-on-primary));
 }
 
 .drawer-footer {

@@ -91,7 +91,7 @@ onMounted(() => {
         <template v-slot:activator="{ props }">
             <div class=" text-left px-0 cursor-pointer" variant="text" v-bind="props">
                 <div class="d-flex align-center">
-                    <v-avatar size="50" color="primary" variant="tonal" class="font-weight-bold text-body-1">
+                    <v-avatar size="32" color="primary" variant="tonal" class="font-weight-bold text-body-1">
                         <v-img
                           v-if="showAvatarImage"
                           :src="avatarUrl || ''"
@@ -116,7 +116,7 @@ onMounted(() => {
                 </div>
 
                 <div class="d-flex align-center mt-5 pb-6">
-                    <v-avatar size="90" color="primary" variant="tonal" class="font-weight-bold text-h4">
+                    <v-avatar size="64" color="primary" variant="tonal" class="font-weight-bold text-h4">
                         <v-img
                           v-if="showAvatarImage"
                           :src="avatarUrl || ''"

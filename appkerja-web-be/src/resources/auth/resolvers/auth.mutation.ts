@@ -1,4 +1,4 @@
-import { Resolver, Mutation, Args } from '@nestjs/graphql';
+import { Resolver, Mutation, Args, Context, Int } from '@nestjs/graphql';
 import { UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from '../auth.service.js';
@@ -13,6 +13,8 @@ import {
   AuthRefreshTokenInput,
   RefreshTokenResponse,
   AuthCompleteSsoOnboardingInput,
+  AuthRevokeSessionInput,
+  AuthRevokeAllSessionsInput,
 } from '../dto/index.js';
 import { PermissionsGuard } from '../guards/permissions.guard.js';
 import { User } from '../../users/entities/user.entity.js';
@@ -36,6 +38,28 @@ const AUTH_RATE_LIMIT_WINDOW_MS = parseInt(
 export class AuthMutation {
   constructor(private readonly authService: AuthService) {}
 
+  private extractClientMeta(ctx: any): {
+    userAgent?: string | null;
+    ipAddress?: string | null;
+    deviceName?: string | null;
+    deviceType?: string | null;
+  } {
+    const req = ctx?.req || ctx?.request;
+    const headers = req?.headers ?? {};
+    const userAgent = String(headers['user-agent'] || '').trim() || null;
+    const forwardedFor = String(headers['x-forwarded-for'] || '')
+      .split(',')[0]
+      ?.trim();
+    const ipAddress =
+      forwardedFor ||
+      String(req?.ip || req?.socket?.remoteAddress || '').trim() ||
+      null;
+    return {
+      userAgent,
+      ipAddress,
+    };
+  }
+
   @Mutation(() => LoginResponse)
   @Public() // Tandai sebagai public endpoint
   @Throttle({
@@ -46,10 +70,12 @@ export class AuthMutation {
   })
   async authLogin(
     @Args('authLoginInput') authLoginInput: AuthLoginInput,
+    @Context() ctx: any,
   ): Promise<LoginResponse> {
     return this.authService.loginWithCredentials(
       authLoginInput.usernameOrEmail,
       authLoginInput.password,
+      this.extractClientMeta(ctx),
     );
   }
 
@@ -65,7 +91,10 @@ export class AuthMutation {
     authSetActiveRoleInput: AuthSetActiveRoleInput,
   ): Promise<LoginResponse> {
     return this.authService.setActiveRole(
-      currentUser as User & { impersonatedByUserId?: string },
+      currentUser as User & {
+        impersonatedByUserId?: string;
+        jwtSessionId?: string | null;
+      },
       authSetActiveRoleInput.activeRoleCode,
     );
   }
@@ -81,7 +110,10 @@ export class AuthMutation {
     authSetActiveTenantInput: AuthSetActiveTenantInput,
   ): Promise<LoginResponse> {
     return this.authService.setActiveTenant(
-      currentUser as User & { impersonatedByUserId?: string },
+      currentUser as User & {
+        impersonatedByUserId?: string;
+        jwtSessionId?: string | null;
+      },
       authSetActiveTenantInput.activeTenantId,
     );
   }
@@ -122,7 +154,10 @@ export class AuthMutation {
     input: AuthCompleteSsoOnboardingInput,
   ): Promise<LoginResponse> {
     return this.authService.completeSsoOnboarding(
-      currentUser as User & { jwtPurpose?: string | null },
+      currentUser as User & {
+        jwtPurpose?: string | null;
+        jwtSessionId?: string | null;
+      },
       input,
     );
   }
@@ -164,7 +199,39 @@ export class AuthMutation {
     @CurrentUser() currentUser: User,
   ): Promise<LoginResponse> {
     return this.authService.exitImpersonation(
-      currentUser as User & { impersonatedByUserId?: string },
+      currentUser as User & {
+        impersonatedByUserId?: string;
+        jwtSessionId?: string | null;
+      },
+    );
+  }
+
+  @Mutation(() => Boolean, {
+    name: 'authRevokeSession',
+    description: 'Revoke satu session perangkat milik user yang sedang login.',
+  })
+  async authRevokeSession(
+    @CurrentUser() currentUser: User,
+    @Args('authRevokeSessionInput') input: AuthRevokeSessionInput,
+  ): Promise<boolean> {
+    return this.authService.revokeSession(
+      currentUser as User & { jwtSessionId?: string | null },
+      input.sessionId,
+    );
+  }
+
+  @Mutation(() => Int, {
+    name: 'authRevokeAllSessions',
+    description:
+      'Revoke semua session perangkat milik user (opsional keep current session).',
+  })
+  async authRevokeAllSessions(
+    @CurrentUser() currentUser: User,
+    @Args('authRevokeAllSessionsInput') input: AuthRevokeAllSessionsInput,
+  ): Promise<number> {
+    return this.authService.revokeAllSessions(
+      currentUser as User & { jwtSessionId?: string | null },
+      input.keepCurrentSession !== false,
     );
   }
 }

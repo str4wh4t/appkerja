@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { Form } from 'vee-validate';
 import { exchangeSsoToken, loginWithCredentials } from '@/services/graphql/auth.service';
 
 /*Social icons*/
@@ -9,32 +8,24 @@ import google from '/images/svgs/google-icon.svg';
 const router = useRouter();
 const route = useRoute();
 const runtimeConfig = useRuntimeConfig();
-const checkbox = ref(false);
+const loginFormRef = ref<{ validate: () => Promise<{ valid: boolean }> } | null>(null);
 const show1 = ref(false);
 const password = ref('');
 const username = ref('');
 const loginError = ref('');
-const usernameValidationError = ref('');
-const passwordValidationError = ref('');
 const isSsoProcessing = ref(false);
-const usernameErrorMessages = computed(() =>
-  [usernameValidationError.value, loginError.value].filter(Boolean)
-);
-const passwordErrorMessages = computed(() =>
-  [passwordValidationError.value].filter(Boolean)
-);
 const passwordRules = ref([
-    (v: string) => !!v || 'Password is required'
+  (v: string) => !!String(v || '').trim() || 'Password is required',
 ]);
 const userOrEmailRules = ref([
-    (v: string) => !!v || 'Username or E-mail is required',
-    (v: string) => {
-        const value = (v || '').trim();
-        if (!value) return false;
-        const isEmail = /.+@.+\..+/.test(value);
-        const isUsername = /^[a-zA-Z0-9._-]{3,}$/.test(value);
-        return isEmail || isUsername || 'Enter a valid username or e-mail';
-    }
+  (v: string) => !!String(v || '').trim() || 'Username or E-mail is required',
+  (v: string) => {
+    const value = String(v || '').trim();
+    if (!value) return 'Username or E-mail is required';
+    const isEmail = /.+@.+\..+/.test(value);
+    const isUsername = /^[a-zA-Z0-9._-]{3,}$/.test(value);
+    return isEmail || isUsername || 'Enter a valid username or e-mail';
+  },
 ]);
 const ssoLoginUrl = computed(() => String(runtimeConfig.public.ssoLoginUrl ?? '').trim());
 const apiBaseUrl = computed(() => {
@@ -76,16 +67,6 @@ const navigateAfterLogin = () => {
   router.push({ path: getSafeRedirectPath() });
 };
 
-const getRuleError = (value: string, rules: Array<(v: string) => boolean | string>) => {
-  for (const rule of rules) {
-    const result = rule(value);
-    if (result !== true) {
-      return typeof result === 'string' ? result : 'Invalid value';
-    }
-  }
-  return '';
-};
-
 const handleSsoLogin = () => {
     if (!ssoLoginUrl.value || !import.meta.client) return;
     window.location.href = ssoLoginUrl.value;
@@ -102,15 +83,14 @@ const getSafeRedirectPath = () => {
 
 async function validate() {
   loginError.value = '';
-  usernameValidationError.value = '';
-  passwordValidationError.value = '';
-
-  usernameValidationError.value = getRuleError(username.value, userOrEmailRules.value);
-  passwordValidationError.value = getRuleError(password.value, passwordRules.value);
-  if (usernameValidationError.value || passwordValidationError.value) return;
+  const form = loginFormRef.value;
+  if (form) {
+    const { valid } = await form.validate();
+    if (!valid) return;
+  }
 
   try {
-    const response = await loginWithCredentials(username.value, password.value);
+    const response = await loginWithCredentials(username.value.trim(), password.value);
     const accessToken = response.data?.authLogin?.access_token;
     const refreshToken = response.data?.authLogin?.refresh_token;
     if (!accessToken) {
@@ -203,30 +183,48 @@ onMounted(async () => {
             <span class="bg-surface px-5 py-3 position-relative text-subtitle-1 text-grey100">or sign in with</span>
         </div>  
     </div>
-    <Form @submit="validate" v-slot="{ isSubmitting }" class="mt-5">
-<v-label class="text-subtitle-1 font-weight-semibold pb-2 text-grey200">Username or E-mail</v-label>
-        <VTextField
+    <v-form
+        id="login-form"
+        ref="loginFormRef"
+        validate-on="input lazy"
+        @submit.prevent="validate"
+        class="mt-5"
+    >
+        <v-alert
+            v-if="loginError"
+            type="error"
+            variant="tonal"
+            density="compact"
+            class="mb-4"
+            rounded="md"
+        >
+            {{ loginError }}
+        </v-alert>
+        <v-text-field
             v-model="username"
+            label="Username or E-mail"
+            color="primary"
+            variant="outlined"
+            density="compact"
             :rules="userOrEmailRules"
-            :error-messages="usernameErrorMessages"
-            @update:model-value="loginError = ''; usernameValidationError = ''"
+            @update:model-value="loginError = ''"
             class="mb-8"
-            required
             hide-details="auto"
-        ></VTextField>
-        <v-label class="text-subtitle-1 font-weight-semibold pb-2 text-grey200">Password</v-label>
-        <VTextField
+        />
+        <v-text-field
             v-model="password"
+            label="Password"
+            color="primary"
+            variant="outlined"
+            density="compact"
             :rules="passwordRules"
-            :error-messages="passwordErrorMessages"
-            @update:model-value="loginError = ''; passwordValidationError = ''"
-            required
+            @update:model-value="loginError = ''"
             hide-details="auto"
             :type="show1 ? 'text' : 'password'"
             :append-inner-icon="show1 ? 'mdi-eye-off' : 'mdi-eye'"
             @click:append-inner="show1 = !show1"
             class="pwdInput"
-        ></VTextField>
+        />
         <div class="d-flex flex-wrap align-center my-3 ml-n2">
             <!-- <v-checkbox v-model="checkbox" :rules="[(v:any) => !!v || 'You must agree to continue!']" required hide-details color="primary">
                 <template v-slot:label class="">Remeber this Device</template>
@@ -237,7 +235,7 @@ onMounted(async () => {
                 >
             </div> -->
         </div>
-        <v-btn class="mt-8" size="large" rounded="pill" color="primary" block type="submit" flat :loading="isSubmitting" :disabled="isSubmitting">
+        <v-btn class="mt-8" size="large" rounded="pill" color="primary" block type="submit" flat>
             Sign In
         </v-btn>
         <div class="text-center mt-4">
@@ -246,7 +244,7 @@ onMounted(async () => {
                 Homepage
             </NuxtLink>
         </div>
-    </Form>
+    </v-form>
     <p v-if="isSsoProcessing" class="text-caption text-medium-emphasis mt-4">
         Completing SSO login...
     </p>

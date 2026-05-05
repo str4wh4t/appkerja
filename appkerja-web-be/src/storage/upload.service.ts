@@ -177,6 +177,61 @@ export class UploadService {
   }
 
   /**
+   * Avatar dari URL eksternal (mis. Google userinfo), disimpan ke storage aplikasi.
+   * Hanya menerima HTTPS dengan MIME image/jpeg atau image/png.
+   */
+  async saveAvatarFromExternalUrl(
+    externalUrl: string,
+    userId: string,
+    options?: { isPublicUpload?: boolean },
+  ): Promise<string> {
+    const raw = String(externalUrl || '').trim();
+    if (!/^https:\/\//i.test(raw)) {
+      throw new BadRequestException('Avatar URL eksternal harus HTTPS');
+    }
+
+    const response = await fetch(raw);
+    if (!response.ok) {
+      throw new BadRequestException(
+        `Gagal mengambil avatar eksternal (HTTP ${response.status})`,
+      );
+    }
+
+    const contentType = String(response.headers.get('content-type') || '')
+      .split(';')[0]
+      ?.trim()
+      .toLowerCase();
+    const mime =
+      contentType === 'image/jpg'
+        ? 'image/jpeg'
+        : contentType === 'image/jpeg' || contentType === 'image/png'
+          ? contentType
+          : '';
+
+    if (!mime) {
+      throw new BadRequestException('Avatar eksternal harus berformat JPEG atau PNG');
+    }
+
+    const ext = MIME_TO_EXT[mime];
+    if (!ext) {
+      throw new BadRequestException('Format avatar eksternal tidak didukung');
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const { label, maxBytes } = getDocumentUploadMaxFromConfig(
+      this.configService,
+    );
+    if (buffer.length > maxBytes) {
+      throw new BadRequestException(`Ukuran avatar maksimal ${label}MB`);
+    }
+
+    const key = `avatars/${userId}${ext}`;
+    const isPublic = options?.isPublicUpload === true;
+    return this.persistUpload(key, buffer, mime, isPublic);
+  }
+
+  /**
    * Mengosongkan stream upload (graphql-upload / fs-capacitor) tanpa menyimpan.
    * Penting dipanggil saat error sebelum stream dibaca penuh — mencegah request berikutnya
    * pada koneksi keep-alive terasa lambat.

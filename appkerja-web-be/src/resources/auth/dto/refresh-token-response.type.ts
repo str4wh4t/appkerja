@@ -25,4 +25,10 @@ export class RefreshTokenResponse {
     description: 'Dipertahankan dari refresh token sebelumnya (konteks tenancy).',
   })
   activeTenantId?: string | null;
+
+  @Field(() => String, {
+    nullable: true,
+    description: 'Session id aktif (sid) untuk manajemen perangkat.',
+  })
+  sessionId?: string | null;
 }

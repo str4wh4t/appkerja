@@ -97,6 +97,41 @@ type SetActiveTenantVariables = {
   };
 };
 
+type AuthSessionRow = {
+  id: string;
+  deviceName: string;
+  deviceType: string;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  lastSeenAt?: string | null;
+  expiresAt: string;
+  isCurrent: boolean;
+};
+
+type AuthMySessionsResponse = {
+  authMySessions: AuthSessionRow[];
+};
+
+type AuthRevokeSessionResponse = {
+  authRevokeSession: boolean;
+};
+
+type AuthRevokeSessionVariables = {
+  authRevokeSessionInput: {
+    sessionId: string;
+  };
+};
+
+type AuthRevokeAllSessionsResponse = {
+  authRevokeAllSessions: number;
+};
+
+type AuthRevokeAllSessionsVariables = {
+  authRevokeAllSessionsInput: {
+    keepCurrentSession?: boolean;
+  };
+};
+
 type ImpersonateResponse = {
   usersImpersonate: {
     access_token: string;
@@ -283,6 +318,33 @@ const AUTH_SET_ACTIVE_TENANT_MUTATION = gql`
   }
 `;
 
+const AUTH_MY_SESSIONS_QUERY = gql`
+  query AuthMySessions {
+    authMySessions {
+      id
+      deviceName
+      deviceType
+      ipAddress
+      userAgent
+      lastSeenAt
+      expiresAt
+      isCurrent
+    }
+  }
+`;
+
+const AUTH_REVOKE_SESSION_MUTATION = gql`
+  mutation AuthRevokeSession($authRevokeSessionInput: AuthRevokeSessionInput!) {
+    authRevokeSession(authRevokeSessionInput: $authRevokeSessionInput)
+  }
+`;
+
+const AUTH_REVOKE_ALL_SESSIONS_MUTATION = gql`
+  mutation AuthRevokeAllSessions($authRevokeAllSessionsInput: AuthRevokeAllSessionsInput!) {
+    authRevokeAllSessions(authRevokeAllSessionsInput: $authRevokeAllSessionsInput)
+  }
+`;
+
 type AuthChangePasswordResponse = {
   authChangePassword: boolean;
 };
@@ -408,6 +470,28 @@ export const changePassword = async (currentPassword: string, newPassword: strin
         currentPassword,
         newPassword,
       },
+    },
+  );
+};
+
+export const getMySessions = async () => {
+  return gqlQuery<AuthMySessionsResponse>(AUTH_MY_SESSIONS_QUERY);
+};
+
+export const revokeSession = async (sessionId: string) => {
+  return gqlMutation<AuthRevokeSessionResponse, AuthRevokeSessionVariables>(
+    AUTH_REVOKE_SESSION_MUTATION,
+    {
+      authRevokeSessionInput: { sessionId },
+    },
+  );
+};
+
+export const revokeAllSessions = async (keepCurrentSession = true) => {
+  return gqlMutation<AuthRevokeAllSessionsResponse, AuthRevokeAllSessionsVariables>(
+    AUTH_REVOKE_ALL_SESSIONS_MUTATION,
+    {
+      authRevokeAllSessionsInput: { keepCurrentSession },
     },
   );
 };

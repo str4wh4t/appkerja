@@ -25,7 +25,7 @@ import { UserTenant } from '../tenants/entities/user-tenant.entity.js';
  * - `roles` / `roles.permissions` = hak akses lewat relasi role–permission (terpisah dari baris scope per `user_roles`).
  * - Jangan tambahkan `userRoles.user` (sirkular ke User).
  */
-/** URL foto Google userinfo — hanya HTTPS, disimpan apa adanya di `avatarUrl`. */
+/** URL foto Google userinfo — hanya HTTPS. */
 function googleProfilePictureUrl(raw?: string | null): string | undefined {
   const s = raw?.trim();
   if (!s || !/^https:\/\//i.test(s)) {
@@ -94,6 +94,41 @@ export class UsersService {
       )`,
       { tenantId: activeTenantId },
     );
+  }
+
+  /**
+   * Sinkron avatar Google ke penyimpanan aplikasi dan kembalikan stored value terbaru.
+   * Jika gagal unduh/upload, avatar lama dipertahankan.
+   */
+  private async syncGoogleAvatarToStorage(params: {
+    userId: string;
+    picture?: string | null;
+    previousAvatarUrl?: string | null;
+  }): Promise<string | null | undefined> {
+    const googleAvatarUrl = googleProfilePictureUrl(params.picture);
+    if (!googleAvatarUrl) {
+      return undefined;
+    }
+
+    try {
+      const storedAvatarUrl = await this.uploadService.saveAvatarFromExternalUrl(
+        googleAvatarUrl,
+        params.userId,
+        { isPublicUpload: true },
+      );
+      const previous = String(params.previousAvatarUrl || '').trim();
+      if (previous && previous !== storedAvatarUrl) {
+        try {
+          await this.uploadService.deleteStoredUploadByUrl(previous);
+        } catch {
+          // Best-effort cleanup; do not block login flow.
+        }
+      }
+      return storedAvatarUrl;
+    } catch {
+      // Avoid blocking SSO login because avatar fetch/upload fails.
+      return undefined;
+    }
   }
 
   async findAll(tenantId?: string | null): Promise<User[]> {
@@ -1027,8 +1062,6 @@ export class UsersService {
       this.configService.get<string>('app.userPasswordDefault') ||
       'ChangeMe123!';
 
-    const googleAvatarUrl = googleProfilePictureUrl(profile.picture);
-
     let user =
       (await this.findByGoogleId(profile.googleId)) ||
       (await this.findByEmail(profile.email));
@@ -1053,13 +1086,32 @@ export class UsersService {
           googleId: profile.googleId,
           statusId: inactiveStatus.id,
           isEmailVerified: profile.isEmailVerified ?? true,
-          ...(googleAvatarUrl ? { avatarUrl: googleAvatarUrl } : {}),
         },
         undefined,
         { deferProfileCompletion: true },
       );
+
+      const syncedAvatarUrl = await this.syncGoogleAvatarToStorage({
+        userId: user.id,
+        picture: profile.picture,
+        previousAvatarUrl: user.avatarUrl,
+      });
+      if (syncedAvatarUrl) {
+        await this.userRepository.update(user.id, { avatarUrl: syncedAvatarUrl });
+        await this.invalidateUserCache(user.id);
+        const freshUser = await this.findOne(user.id);
+        if (freshUser) {
+          return freshUser;
+        }
+      }
       return user;
     }
+
+    const syncedAvatarUrl = await this.syncGoogleAvatarToStorage({
+      userId: user.id,
+      picture: profile.picture,
+      previousAvatarUrl: user.avatarUrl,
+    });
 
     await this.userRepository.update(user.id, {
       firstName: profile.firstName || user.firstName || null,
@@ -1067,9 +1119,7 @@ export class UsersService {
       googleId: profile.googleId,
       isEmailVerified: profile.isEmailVerified ?? user.isEmailVerified,
       lastLoginAt: new Date(),
-      ...(googleAvatarUrl && !user.avatarUrl?.trim()
-        ? { avatarUrl: googleAvatarUrl }
-        : {}),
+      ...(syncedAvatarUrl ? { avatarUrl: syncedAvatarUrl } : {}),
     });
     await this.invalidateUserCache(user.id);
 

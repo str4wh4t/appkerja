@@ -31,4 +31,10 @@ export class LoginResponse {
       'Sama dengan claim activeTenantId di access token (konteks tenancy).',
   })
   activeTenantId?: string | null;
+
+  @Field(() => String, {
+    nullable: true,
+    description: 'Session id aktif (sid) untuk manajemen perangkat.',
+  })
+  sessionId?: string | null;
 }

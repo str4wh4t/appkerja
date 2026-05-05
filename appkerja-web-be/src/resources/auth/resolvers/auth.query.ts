@@ -3,6 +3,7 @@ import { CurrentUser } from '../decorators/current-user.decorator.js';
 import { AuthService } from '../auth.service.js';
 import { Tenant } from '../../tenants/entities/tenant.entity.js';
 import { User } from '../../users/entities/user.entity.js';
+import { AuthSessionType } from '../dto/auth-session.type.js';
 
 @Resolver()
 export class AuthQuery {
@@ -24,5 +25,17 @@ export class AuthQuery {
   })
   async authActiveTenant(@CurrentUser() currentUser: User): Promise<Tenant | null> {
     return this.authService.findActiveTenant(currentUser);
+  }
+
+  @Query(() => [AuthSessionType], {
+    name: 'authMySessions',
+    description: 'Daftar session perangkat aktif user saat ini.',
+  })
+  async authMySessions(
+    @CurrentUser() currentUser: User,
+  ): Promise<AuthSessionType[]> {
+    return this.authService.listMySessions(
+      currentUser as User & { jwtSessionId?: string | null },
+    );
   }
 }

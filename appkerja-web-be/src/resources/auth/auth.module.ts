@@ -11,6 +11,7 @@ import { UsersModule } from '../users/users.module.js';
 import { GoogleOauthService } from './services/index.js';
 import { Tenant, UserTenant } from '../tenants/entities/index.js';
 import { Role } from '../roles/entities/role.entity.js';
+import { AuthSession } from './entities/index.js';
 
 @Module({
   imports: [
@@ -28,7 +29,7 @@ import { Role } from '../roles/entities/role.entity.js';
       },
       inject: [ConfigService],
     }),
-    TypeOrmModule.forFeature([Tenant, UserTenant, Role]),
+    TypeOrmModule.forFeature([Tenant, UserTenant, Role, AuthSession]),
     UsersModule,
   ],
   providers: [

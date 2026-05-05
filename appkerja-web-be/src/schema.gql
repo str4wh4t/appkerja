@@ -23,6 +23,26 @@ input AuthRefreshTokenInput {
   refresh_token: String!
 }
 
+input AuthRevokeAllSessionsInput {
+  """Jika true, session saat ini dipertahankan."""
+  keepCurrentSession: Boolean = true
+}
+
+input AuthRevokeSessionInput {
+  sessionId: String!
+}
+
+type AuthSessionType {
+  deviceName: String!
+  deviceType: String!
+  expiresAt: DateTime!
+  id: ID!
+  ipAddress: String
+  isCurrent: Boolean!
+  lastSeenAt: DateTime
+  userAgent: String
+}
+
 """
 Role code yang dipilih untuk konteks UI (menu). Harus salah satu dari user.roles[].code. Tidak mengubah union permission.
 """
@@ -55,6 +75,9 @@ type LoginResponse {
   activeTenantId: String
   expires_in: String!
   refresh_token: String!
+
+  """Session id aktif (sid) untuk manajemen perangkat."""
+  sessionId: String
   token_type: String!
   user: User!
 }
@@ -95,6 +118,14 @@ type Mutation {
   authCompleteSsoOnboarding(authCompleteSsoOnboardingInput: AuthCompleteSsoOnboardingInput!): LoginResponse!
   authLogin(authLoginInput: AuthLoginInput!): LoginResponse!
   authRefreshToken(authRefreshTokenInput: AuthRefreshTokenInput!): RefreshTokenResponse!
+
+  """
+  Revoke semua session perangkat milik user (opsional keep current session).
+  """
+  authRevokeAllSessions(authRevokeAllSessionsInput: AuthRevokeAllSessionsInput!): Int!
+
+  """Revoke satu session perangkat milik user yang sedang login."""
+  authRevokeSession(authRevokeSessionInput: AuthRevokeSessionInput!): Boolean!
 
   """
   Menerbitkan token baru dengan claim activeRoleCode untuk konteks UI menu. activeRoleCode harus salah satu user.roles[].code. Permission tetap union semua role.
@@ -198,6 +229,9 @@ type Query {
   """Mengambil tenant aktif dari claim JWT saat ini."""
   authActiveTenant: Tenant
 
+  """Daftar session perangkat aktif user saat ini."""
+  authMySessions: [AuthSessionType!]!
+
   """
   Mengambil daftar tenant yang bisa diakses user saat ini (superadmin: semua tenant).
   """
@@ -249,6 +283,9 @@ type RefreshTokenResponse {
   activeTenantId: String
   expires_in: String!
   refresh_token: String!
+
+  """Session id aktif (sid) untuk manajemen perangkat."""
+  sessionId: String
   token_type: String!
 }
 

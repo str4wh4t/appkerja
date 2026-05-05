@@ -23,6 +23,16 @@ const clearAuthStorage = () => {
   sessionStorage.removeItem("tokenPurpose");
 };
 
+const redirectToLogin = () => {
+  if (!import.meta.client) return;
+  const current = window.location.pathname + window.location.search;
+  const next = current.startsWith("/auth/login")
+    ? "/auth/login"
+    : `/auth/login?redirect=${encodeURIComponent(current)}`;
+  if (window.location.pathname + window.location.search === next) return;
+  window.location.assign(next);
+};
+
 const saveTokens = (accessToken: string, refreshToken?: string) => {
   if (!import.meta.client) return;
   localStorage.setItem("accessToken", accessToken);
@@ -99,6 +109,9 @@ export default defineNuxtPlugin(() => {
         ?.then((newAccessToken) => {
           if (!newAccessToken) {
             clearAuthStorage();
+            redirectToLogin();
+            observer.error(new Error("Session is no longer active"));
+            return;
           } else {
             operation.setContext(({ headers = {} }) => ({
               headers: {
@@ -119,6 +132,7 @@ export default defineNuxtPlugin(() => {
         })
         .catch((error) => {
           clearAuthStorage();
+          redirectToLogin();
           observer.error(error);
         });
     });

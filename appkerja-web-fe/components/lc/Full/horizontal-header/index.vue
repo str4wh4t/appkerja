@@ -126,7 +126,7 @@ const getCart = computed(() => {
       <!-- ---------------------------------------------- -->
       <!-- User Profile -->
       <!-- ---------------------------------------------- -->
-      <div class="hidden-sm-and-down">
+      <div class="me-sm-0 me-2">
         <LcFullVerticalHeaderProfileDD />
       </div>
 
